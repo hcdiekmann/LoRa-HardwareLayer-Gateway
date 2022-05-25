@@ -15,19 +15,18 @@
 
 #include "Arduino.h"
 #include "heltec.h" 
-#include "EspMQTTClient.h"
+#include <WiFi.h>
+#include <PubSubClient.h>
 
 #define BAND                      868E6  //you can set band here directly,e.g. 868E6,915E6
 
-EspMQTTClient client(
-  "WifiSSID",
-  "WifiPassword",
-  "192.168.1.100",                // MQTT Broker server ip
-  "MQTTUsername",                 // Can be omitted if not needed
-  "MQTTPassword",                 // Can be omitted if not needed
-  "TestClient",                   // Client name that uniquely identify your device
-  1883                            // The MQTT port, default to 1883. this line can be omitted
-);
+const char* ssid = "Kempensebaan 91";
+const char* password = "solutio365";
+const char* MQTT_SERVER = "broker.mqtt-dashboard.com";
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+void DisplayData();
 
 String rssi = "RSSI --";
 String packSize = "--";
@@ -49,22 +48,62 @@ void LoRaSetup(){
   Heltec.display->clear();
 }
 
-void ClientSetup(){
-  client.enableDebuggingMessages();
-  client.enableLastWillMessage("LoRa/Gateway1", "I am going offline", true); // activate retain flag by passing true as third parameter 
-}
-
-void onConnectionEstablished()
-{
-  client.publish("LoRa/Gateway1", "This is a message from LoRa Gateway");
-}
-
 void cbk(int packetSize) {
   rxPacket ="";
   packSize = String(packetSize,DEC);
   for (int i = 0; i < packetSize; i++) { rxPacket += (char) LoRa.read(); }
+  client.publish("ESP32LoRaGPS", rxPacket.c_str());
   rssi = "RSSI " + String(LoRa.packetRssi(), DEC) ;
-  DisplayData();
+}
+
+void setup_wifi() {
+  delay(10);
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  randomSeed(micros());
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Create a random client ID
+    String clientId = "ESP32Client-";
+    clientId += String(random(0xffff), HEX);
+    // Attempt to connect
+    if (client.connect(clientId.c_str())) {
+      Serial.println("Connected");
+      client.subscribe("ESP32LoRaReceiver", 0);
+    } else {
+      Serial.print("Failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+void MQTTcallback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
 }
 
 void DisplayData() {
@@ -79,7 +118,9 @@ void DisplayData() {
 
 void setup() {
   LoRaSetup();
-  ClientSetup();
+  setup_wifi();
+  client.setServer(MQTT_SERVER, 1883);
+  client.setCallback(MQTTcallback);
 
   Heltec.display->drawString(0, 0, "Gateway Started");
   Heltec.display->drawString(0, 10, "Waiting for incoming data...");
@@ -90,8 +131,12 @@ void setup() {
 
 void loop() {
   client.loop();
-  
+    if (!client.connected()) {
+    reconnect();
+  }
+
   int packetSize = LoRa.parsePacket();
   if (packetSize) { cbk(packetSize);  }
+  DisplayData();
   delay(10);
 }
