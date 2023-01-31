@@ -20,8 +20,8 @@
 
 #define BAND                      868E6  //you can set band here directly,e.g. 868E6,915E6
 
-const char* ssid = "Kempensebaan 91";
-const char* password = "solutio365";
+const char* ssid = "";
+const char* password = "";
 const char* MQTT_SERVER = "broker.mqtt-dashboard.com";
 WiFiClient espClient;
 PubSubClient client(espClient);
